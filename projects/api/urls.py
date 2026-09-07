@@ -1,6 +1,11 @@
 from django.urls import path
 
-from .views import (
+from issues.api.views import IssueListCreateAPIView
+from projects.api.member_views import (
+    ProjectMemberDetailAPIView,
+    ProjectMemberListCreateAPIView,
+)
+from projects.api.views import (
     ProjectDetailAPIView,
     ProjectListCreateAPIView,
 )
@@ -15,5 +20,22 @@ urlpatterns = [
         "<int:pk>/",
         ProjectDetailAPIView.as_view(),
         name="project-detail",
+    ),
+    # Membership
+    path(
+        "<int:project_id>/members/",
+        ProjectMemberListCreateAPIView.as_view(),
+        name="project-member-list",
+    ),
+    path(
+        "<int:project_id>/members/<int:pk>/",
+        ProjectMemberDetailAPIView.as_view(),
+        name="project-member-detail",
+    ),
+    # Issues scoped to a project
+    path(
+        "<int:project_id>/issues/",
+        IssueListCreateAPIView.as_view(),
+        name="project-issue-list",
     ),
 ]

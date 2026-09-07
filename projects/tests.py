@@ -12,6 +12,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from organizations.testing import make_org, make_user
 from projects.models import Project, ProjectMember
 
 User = get_user_model()
@@ -21,13 +22,15 @@ class ProjectCreateTests(APITestCase):
     """POST /api/projects/"""
 
     def setUp(self):
-        self.owner = User.objects.create_user(username="owner", password="pass1234")
-        self.other_user = User.objects.create_user(username="other", password="pass1234")
+        self.org = make_org()
+        self.owner = make_user("owner", org=self.org)
+        self.other_user = make_user("other", org=self.org)
         self.client.force_authenticate(user=self.owner)
         self.url = "/api/projects/"
 
     def test_create_project_returns_201(self):
         payload = {
+            "organization": self.org.id,
             "name": "TrackFlow",
             "key": "TRK",
             "description": "PM backend",
@@ -38,7 +41,7 @@ class ProjectCreateTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_create_project_persists_correct_fields(self):
-        payload = {"name": "TrackFlow", "key": "TRK"}
+        payload = {"organization": self.org.id, "name": "TrackFlow", "key": "TRK"}
         response = self.client.post(self.url, payload, format="json")
 
         project = Project.objects.get(key="TRK")
@@ -47,7 +50,7 @@ class ProjectCreateTests(APITestCase):
         self.assertEqual(response.data["owner"], self.owner.username)
 
     def test_create_project_creates_owner_membership(self):
-        payload = {"name": "TrackFlow", "key": "TRK"}
+        payload = {"organization": self.org.id, "name": "TrackFlow", "key": "TRK"}
         response = self.client.post(self.url, payload, format="json")
         project_id = response.data["id"]
 
@@ -60,6 +63,7 @@ class ProjectCreateTests(APITestCase):
 
     def test_create_project_with_additional_members(self):
         payload = {
+            "organization": self.org.id,
             "name": "TrackFlow",
             "key": "TRK2",
             "members": [{"user": self.other_user.id, "role": "DEVELOPER"}],
@@ -80,6 +84,7 @@ class ProjectCreateTests(APITestCase):
 
     def test_create_project_does_not_duplicate_owner_if_listed_in_members(self):
         payload = {
+            "organization": self.org.id,
             "name": "TrackFlow",
             "key": "TRK3",
             "members": [{"user": self.owner.id, "role": "VIEWER"}],
@@ -94,16 +99,17 @@ class ProjectCreateTests(APITestCase):
 
     def test_create_project_requires_authentication(self):
         self.client.force_authenticate(user=None)
-        response = self.client.post(self.url, {"name": "X", "key": "X1"}, format="json")
-        # SessionAuthentication has no WWW-Authenticate challenge, so DRF
-        # returns 403 rather than 401 for unauthenticated requests. Expect
-        # this to become 401 once JWT auth lands in Sprint 2.
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        response = self.client.post(self.url, {"organization": self.org.id, "name": "X", "key": "X1"}, format="json")
+        # JWTAuthentication sends a WWW-Authenticate challenge, so an
+        # unauthenticated request is a 401 rather than the 403 that plain
+        # SessionAuthentication used to produce.
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_create_project_duplicate_key_rejected(self):
-        Project.objects.create(name="First", key="DUP", owner=self.owner)
+        Project.objects.create(
+            organization=self.org, name="First", key="DUP", owner=self.owner)
         response = self.client.post(
-            self.url, {"name": "Second", "key": "DUP"}, format="json"
+            self.url, {"organization": self.org.id, "name": "Second", "key": "DUP"}, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -112,25 +118,31 @@ class ProjectListTests(APITestCase):
     """GET /api/projects/"""
 
     def setUp(self):
-        self.user = User.objects.create_user(username="lister", password="pass1234")
+        self.org = make_org()
+        self.user = make_user("lister", org=self.org)
         self.client.force_authenticate(user=self.user)
-        Project.objects.create(name="A", key="AAA", owner=self.user)
-        Project.objects.create(name="B", key="BBB", owner=self.user)
+        Project.objects.create(
+            organization=self.org, name="A", key="AAA", owner=self.user)
+        Project.objects.create(
+            organization=self.org, name="B", key="BBB", owner=self.user)
 
     def test_list_projects_returns_200_and_all_projects(self):
         response = self.client.get("/api/projects/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 2)
+        # Responses are paginated: {count, next, previous, results}.
+        self.assertEqual(response.data["count"], 2)
+        self.assertEqual(len(response.data["results"]), 2)
 
 
 class ProjectDetailTests(APITestCase):
     """GET / PATCH / DELETE /api/projects/<id>/"""
 
     def setUp(self):
-        self.owner = User.objects.create_user(username="owner2", password="pass1234")
+        self.org = make_org()
+        self.owner = make_user("owner2", org=self.org)
         self.client.force_authenticate(user=self.owner)
         self.project = Project.objects.create(
-            name="Detail Project", key="DET", owner=self.owner
+            organization=self.org, name="Detail Project", key="DET", owner=self.owner
         )
         ProjectMember.objects.create(
             project=self.project, user=self.owner, role=ProjectMember.Role.OWNER
@@ -178,9 +190,10 @@ class ProjectMemberModelTests(APITestCase):
     """Sanity checks on the ProjectMember constraint itself."""
 
     def setUp(self):
-        self.owner = User.objects.create_user(username="owner3", password="pass1234")
+        self.org = make_org()
+        self.owner = make_user("owner3", org=self.org)
         self.project = Project.objects.create(
-            name="Constraint Project", key="CON", owner=self.owner
+            organization=self.org, name="Constraint Project", key="CON", owner=self.owner
         )
 
     def test_duplicate_membership_raises_integrity_error(self):
@@ -200,12 +213,13 @@ class ProjectSerializerShapeTests(APITestCase):
     correct shapes."""
 
     def setUp(self):
-        self.owner = User.objects.create_user(username="shapeowner", password="pass1234")
-        self.member_user = User.objects.create_user(username="member1", password="pass1234")
+        self.org = make_org()
+        self.owner = make_user("shapeowner", org=self.org)
+        self.member_user = make_user("member1", org=self.org)
         self.client.force_authenticate(user=self.owner)
 
         self.project = Project.objects.create(
-            name="Shape Project", key="SHP", owner=self.owner, description="desc"
+            organization=self.org, name="Shape Project", key="SHP", owner=self.owner, description="desc"
         )
         ProjectMember.objects.create(
             project=self.project, user=self.owner, role=ProjectMember.Role.OWNER
@@ -218,7 +232,7 @@ class ProjectSerializerShapeTests(APITestCase):
         response = self.client.get("/api/projects/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        item = response.data[0]
+        item = response.data["results"][0]
         self.assertNotIn("description", item)
         self.assertNotIn("members", item)
         self.assertIn("key", item)
@@ -240,7 +254,7 @@ class ProjectSerializerShapeTests(APITestCase):
 
     def test_create_response_uses_detail_shape(self):
         response = self.client.post(
-            "/api/projects/", {"name": "New", "key": "NEW"}, format="json"
+            "/api/projects/", {"organization": self.org.id, "name": "New", "key": "NEW"}, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIn("members", response.data)
@@ -284,3 +298,202 @@ class ProjectSerializerShapeTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("members", response.data)
         self.assertIn("description", response.data)
+
+class ProjectVisibilityTests(APITestCase):
+    """Who can *see* which projects.
+
+    Visibility is enforced in the selector layer, so an invisible project is
+    reported as 404 rather than 403 and never leaks its existence.
+    """
+
+    def setUp(self):
+        self.org = make_org()
+        self.owner = make_user("visowner", org=self.org)
+        self.member = make_user("vismember", org=self.org)
+        self.stranger = make_user("stranger", org=self.org)
+
+        self.private = Project.objects.create(
+            organization=self.org, name="Private Project", key="PRV", owner=self.owner
+        )
+        ProjectMember.objects.create(
+            project=self.private, user=self.owner, role=ProjectMember.Role.OWNER
+        )
+        ProjectMember.objects.create(
+            project=self.private, user=self.member, role=ProjectMember.Role.DEVELOPER
+        )
+
+        self.public = Project.objects.create(
+            organization=self.org, name="Public Project",
+            key="PUB",
+            owner=self.owner,
+            visibility=Project.Visibility.PUBLIC,
+        )
+
+    def test_member_sees_private_project_in_list(self):
+        self.client.force_authenticate(user=self.member)
+        response = self.client.get("/api/projects/")
+        keys = {p["key"] for p in response.data["results"]}
+        self.assertIn("PRV", keys)
+
+    def test_stranger_does_not_see_private_project_in_list(self):
+        self.client.force_authenticate(user=self.stranger)
+        response = self.client.get("/api/projects/")
+        keys = {p["key"] for p in response.data["results"]}
+        self.assertNotIn("PRV", keys)
+
+    def test_stranger_sees_public_project_in_list(self):
+        self.client.force_authenticate(user=self.stranger)
+        response = self.client.get("/api/projects/")
+        keys = {p["key"] for p in response.data["results"]}
+        self.assertEqual(keys, {"PUB"})
+
+    def test_stranger_retrieving_private_project_gets_404_not_403(self):
+        self.client.force_authenticate(user=self.stranger)
+        response = self.client.get(f"/api/projects/{self.private.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_stranger_can_retrieve_public_project(self):
+        self.client.force_authenticate(user=self.stranger)
+        response = self.client.get(f"/api/projects/{self.public.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_owner_sees_project_without_a_membership_row(self):
+        """A project created through the admin has no ProjectMember row; its
+        owner must still see it."""
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get(f"/api/projects/{self.public.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(
+            ProjectMember.objects.filter(project=self.public, user=self.owner).exists()
+        )
+
+    def test_list_is_not_duplicated_by_multiple_memberships(self):
+        """owner + member + PUBLIC all match in one OR'd query; distinct()
+        must keep each project to a single row."""
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get("/api/projects/")
+        keys = [p["key"] for p in response.data["results"]]
+        self.assertEqual(sorted(keys), ["PRV", "PUB"])
+        self.assertEqual(response.data["count"], 2)
+
+
+class ProjectWritePermissionTests(APITestCase):
+    """Who can *modify* a project. Read access alone is never enough."""
+
+    def setUp(self):
+        self.org = make_org()
+        self.owner = make_user("permowner", org=self.org)
+        self.manager = make_user("permmanager", org=self.org)
+        self.developer = make_user("permdev", org=self.org)
+        self.viewer = make_user("permviewer", org=self.org)
+        self.stranger = make_user("permstranger", org=self.org)
+
+        self.project = Project.objects.create(
+            organization=self.org, name="Perm Project",
+            key="PRM",
+            owner=self.owner,
+            visibility=Project.Visibility.PUBLIC,
+        )
+        for user, role in (
+            (self.owner, ProjectMember.Role.OWNER),
+            (self.manager, ProjectMember.Role.MANAGER),
+            (self.developer, ProjectMember.Role.DEVELOPER),
+            (self.viewer, ProjectMember.Role.VIEWER),
+        ):
+            ProjectMember.objects.create(project=self.project, user=user, role=role)
+
+        self.url = f"/api/projects/{self.project.id}/"
+
+    def _patch_as(self, user):
+        self.client.force_authenticate(user=user)
+        return self.client.patch(self.url, {"name": "Touched"}, format="json")
+
+    def _delete_as(self, user):
+        self.client.force_authenticate(user=user)
+        return self.client.delete(self.url)
+
+    def test_owner_can_patch(self):
+        self.assertEqual(self._patch_as(self.owner).status_code, status.HTTP_200_OK)
+
+    def test_manager_can_patch(self):
+        self.assertEqual(self._patch_as(self.manager).status_code, status.HTTP_200_OK)
+
+    def test_developer_cannot_patch(self):
+        self.assertEqual(self._patch_as(self.developer).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_viewer_cannot_patch(self):
+        self.assertEqual(self._patch_as(self.viewer).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_denied_patch_does_not_change_the_project(self):
+        self._patch_as(self.viewer)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, "Perm Project")
+
+    def test_stranger_patching_public_project_is_forbidden(self):
+        """A PUBLIC project is readable by anyone but writable by nobody
+        outside its member list."""
+        self.assertEqual(self._patch_as(self.stranger).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_owner_can_delete(self):
+        self.assertEqual(self._delete_as(self.owner).status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_manager_cannot_delete(self):
+        self.assertEqual(self._delete_as(self.manager).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Project.objects.filter(id=self.project.id).exists())
+
+    def test_developer_cannot_delete(self):
+        self.assertEqual(self._delete_as(self.developer).status_code, status.HTTP_403_FORBIDDEN)
+
+
+class ProjectFilterTests(APITestCase):
+    """The project list honours search, filter and ordering parameters.
+
+    Without explicit `search_fields` the globally-configured SearchFilter
+    silently ignores ?search=, which is worse than not offering it at all.
+    """
+
+    def setUp(self):
+        self.org = make_org()
+        self.user = make_user("filterer", org=self.org)
+        self.client.force_authenticate(user=self.user)
+
+        self.tracker = Project.objects.create(
+            organization=self.org, name="TrackFlow", key="TRK", owner=self.user, description="the tracker"
+        )
+        self.design = Project.objects.create(
+            organization=self.org, name="Design System",
+            key="DS",
+            owner=self.user,
+            visibility=Project.Visibility.PUBLIC,
+        )
+        self.archived = Project.objects.create(
+            organization=self.org, name="Old Thing", key="OLD", owner=self.user, status=Project.Status.ARCHIVED
+        )
+
+    def _names(self, query=""):
+        response = self.client.get(f"/api/projects/?{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {p["name"] for p in response.data["results"]}
+
+    def test_search_matches_name(self):
+        self.assertEqual(self._names("search=TrackFlow"), {"TrackFlow"})
+
+    def test_search_matches_key(self):
+        self.assertEqual(self._names("search=DS"), {"Design System"})
+
+    def test_filter_by_status(self):
+        self.assertEqual(self._names("status=ARCHIVED"), {"Old Thing"})
+
+    def test_filter_by_visibility(self):
+        self.assertEqual(self._names("visibility=PUBLIC"), {"Design System"})
+
+    def test_filter_by_key(self):
+        self.assertEqual(self._names("key=trk"), {"TrackFlow"})
+
+    def test_ordering_by_name(self):
+        response = self.client.get("/api/projects/?ordering=name")
+        names = [p["name"] for p in response.data["results"]]
+        self.assertEqual(names, ["Design System", "Old Thing", "TrackFlow"])
+
+    def test_no_query_returns_everything_visible(self):
+        self.assertEqual(len(self._names()), 3)
