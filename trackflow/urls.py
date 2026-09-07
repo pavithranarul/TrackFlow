@@ -1,23 +1,42 @@
-"""
-URL configuration for trackflow project.
+"""Root URL configuration for TrackFlow.
 
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+    /admin/                     Django admin
+    /api/auth/                  registration, JWT tokens, profile
+    /api/organizations/         tenants and their rosters (super admin creates)
+    /api/projects/              projects, their members and their issues
+    /api/issues/, /api/comments/  issues and comments addressed directly
+    /api/schema/                OpenAPI schema, Swagger UI, ReDoc
 """
+
 from django.contrib import admin
 from django.urls import include, path
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+
+    path("api/auth/", include("accounts.api.urls")),
+    path("api/organizations/", include("organizations.api.urls")),
     path("api/projects/", include("projects.api.urls")),
+    path("api/", include("issues.api.urls")),
+
+    # Interactive API documentation
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path(
+        "api/docs/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui",
+    ),
+    path(
+        "api/redoc/",
+        SpectacularRedocView.as_view(url_name="schema"),
+        name="redoc",
+    ),
+
+    # Browsable-API login/logout, useful in development.
+    path("api-auth/", include("rest_framework.urls")),
 ]

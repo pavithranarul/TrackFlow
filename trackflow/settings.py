@@ -10,22 +10,39 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import sys
+from datetime import timedelta
 from pathlib import Path
+
+import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# DEBUG defaults to False so that an environment which sets nothing at all is
+# safe rather than exposed. Local development is expected to `cp .env.example
+# .env`, which turns it on. ALLOWED_HOSTS defaults to the loopback names so a
+# bare `runserver` still answers.
+env = environ.Env(
+    DEBUG=(bool, False),
+    ALLOWED_HOSTS=(list, ['localhost', '127.0.0.1', '[::1]']),
+)
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+# Reads BASE_DIR/.env when present. See .env.example for the supported keys.
+environ.Env.read_env(BASE_DIR / '.env')
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-@5u#x^$@jpfq&f%0(6r%ektcmww79k1h(d7@&jdy(90w&s4m_3'
+# The fallback exists so the project runs out of the box in development; set
+# DJANGO_SECRET_KEY in the environment for anything else.
+SECRET_KEY = env(
+    'DJANGO_SECRET_KEY',
+    default='django-insecure-@5u#x^$@jpfq&f%0(6r%ektcmww79k1h(d7@&jdy(90w&s4m_3',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env('DEBUG')
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = env('ALLOWED_HOSTS')
 
 
 # Application definition
@@ -37,9 +54,17 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Third party
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'django_filters',
+    'drf_spectacular',
+
+    # Local
+    'accounts',
+    'organizations',
     'projects',
     'issues',
-    'rest_framework'
 ]
 
 MIDDLEWARE = [
@@ -76,10 +101,10 @@ WSGI_APPLICATION = 'trackflow.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': env.db_url(
+        'DATABASE_URL',
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+    )
 }
 
 
@@ -123,3 +148,73 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# Django REST Framework
+# https://www.django-rest-framework.org/api-guide/settings/
+
+REST_FRAMEWORK = {
+    # JWT is the API's authentication scheme. Session auth is kept alongside it
+    # purely so the browsable API and the admin stay usable in development.
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'DEFAULT_PAGINATION_CLASS':
+        'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        # Registration and login are the endpoints worth brute-forcing, so they
+        # are the ones that carry a rate limit.
+        'auth': '20/hour',
+    },
+}
+
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=env.int('JWT_ACCESS_MINUTES', default=60)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=env.int('JWT_REFRESH_DAYS', default=7)),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': False,
+    'UPDATE_LAST_LOGIN': True,
+}
+
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'TrackFlow API',
+    'DESCRIPTION': 'Project and issue tracking backend.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    # Project.Status and Issue.Status are both called "status"; name them
+    # explicitly so the generated client has readable enum types.
+    'ENUM_NAME_OVERRIDES': {
+        'ProjectStatusEnum': 'projects.models.Project.Status',
+        'IssueStatusEnum': 'issues.models.Issue.Status',
+        # Likewise "role": project roles and organization roles are different
+        # sets that happen to share a field name.
+        'ProjectRoleEnum': 'projects.models.ProjectMember.Role',
+        'OrgRoleEnum': 'organizations.models.OrgMember.Role',
+    },
+}
+
+
+# Test-run tuning
+# ---------------
+# The default PBKDF2 hasher is deliberately slow, which is right in production
+# and painful in a suite that creates a user per test. Swap in a fast hasher
+# for test runs only; nothing here affects a real deployment.
+if 'test' in sys.argv:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']

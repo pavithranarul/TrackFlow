@@ -1,3 +1,9 @@
 .venv
 __pycache__/
 .pytest_cache/
+
+# Local secrets — see .env.example for the keys this file should define.
+.env
+
+# Development database
+db.sqlite3

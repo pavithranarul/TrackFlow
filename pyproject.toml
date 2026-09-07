@@ -6,5 +6,37 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "django>=5.2.14",
+    "django-environ>=0.14.0",
+    "django-filter>=26.1",
     "djangorestframework>=3.17.1",
+    "djangorestframework-simplejwt>=5.5.1",
+    "drf-spectacular>=0.30.0",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.9",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "DJ",   # flake8-django
+    "C4",   # comprehensions
+]
+ignore = [
+    "E501",  # line length is formatter territory, not a lint error
+]
+
+[tool.ruff.lint.per-file-ignores]
+"*/tests.py" = ["E402"]
+"*/settings.py" = ["F405"]
