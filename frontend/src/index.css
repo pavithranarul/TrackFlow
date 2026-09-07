@@ -1,0 +1,145 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Theme
+   Light is the base; the dark palette is applied by a `dark` class on <html>,
+   set from localStorage before first paint (see index.html's inline script in
+   main.tsx) so there is no flash of the wrong theme.
+--------------------------------------------------------------------------- */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --color-canvas: #fbfbfd;
+  --color-surface: #ffffff;
+  --color-raised: #ffffff;
+  --color-line: #e7e7ec;
+  --color-ink: #16161d;
+  --color-muted: #6b6b7b;
+  --color-faint: #9a9aab;
+  --color-accent: #5b5bd6;
+  --color-accent-soft: #eeeefb;
+}
+
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --color-canvas: #0d0d12;
+  --color-surface: #16161d;
+  --color-raised: #1c1c25;
+  --color-line: #2a2a35;
+  --color-ink: #eeeef2;
+  --color-muted: #9a9aab;
+  --color-faint: #6b6b7b;
+  --color-accent: #8b8bf0;
+  --color-accent-soft: #23233a;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Slim, unobtrusive scrollbars that follow the theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 99px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-faint);
+}
+
+/* Focus rings only for keyboard users. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.18s ease-out both;
+}
+.animate-slide-in {
+  animation: slide-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Loading skeleton sheen. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-line);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-surface) 60%, transparent),
+    transparent
+  );
+  animation: shimmer 1.4s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
